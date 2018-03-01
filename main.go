@@ -57,7 +57,7 @@ func encrypt(password []byte, args []string) {
 		exit("cannot encrypt: %s", err)
 	}
 
-	fmt.Printf("%s\n", ciphertext)
+	fmt.Printf("%s", ciphertext)
 }
 
 func decrypt(password []byte, args []string) {
@@ -82,7 +82,7 @@ func decrypt(password []byte, args []string) {
 		exit("cannot encrypt: %s", err)
 	}
 
-	fmt.Printf("%s\n", plaintext)
+	fmt.Printf("%s", plaintext)
 }
 
 func printEncUsage() {
