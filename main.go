@@ -1,92 +1,123 @@
 package main
 
 import (
-	"crypto/aes"
-	"crypto/cipher"
-	"crypto/rand"
-	"encoding/hex"
 	"fmt"
-	"io"
+	"golang.org/x/crypto/ssh/terminal"
+	"syscall"
+	"os"
+	"bytes"
+	"io/ioutil"
+	"github.com/trichner/gcrypt/prop"
+	"strings"
 )
 
-const (
-	VERSION_BYTE         = 0x01
-	VERSION_BYTE_LENGTH  = 1
-	AES_KEY_BITS_LENGTH  = 128
-	GCM_IV_BYTES_LENGTH  = 12
-	GCM_TAG_BYTES_LENGTH = 16
-	PBKDF2_ITERATIONS    = 16384
-	PBKDF2_SALT_STR      = "4d3fe0d71d2abd2828e7a3196ea450d4"
-)
+func main() {
 
-var PBKDF2_SALT, _ = hex.DecodeString(s)
+	pw := readPassword()
 
-func deriveKey(password []byte, keyBytesSize int) []byte {
-	key := pbkdf2.Key(password, PBKDF2_SALT, PBKDF2_ITERATIONS, keyBytesSize, sha256.New)
+	args := os.Args
+	if len(args) < 2 {
+		printUsage()
+	}
+
+	args = args[1:]
+	if args[0] == "enc" {
+
+		encrypt(pw, args)
+		return
+	}
+
+	if args[0] == "dec" {
+
+		decrypt(pw, args)
+		return
+	}
+
+	printUsage()
 }
 
-func Encrypt(password, plaintext []byte) ([]byte, error) {
+func encrypt(password []byte, args []string) {
 
-	// derive the AES key
-	key := deriveKey(password, AES_KEY_BITS_LENGTH/8)
+	if len(args) <= 2 {
+		printEncUsage()
+		os.Exit(1)
+		return
+	}
 
-	block, err := aes.NewCipher(key)
+	pkey := args[1]
+	fn := args[2]
+
+	plaintext, err := ioutil.ReadFile(fn)
+	if err != nil || plaintext == nil {
+		exit("cannot read: %s", fn)
+	}
+
+	ciphertext, err := prop.Encrypt(password, pkey, string(plaintext))
 	if err != nil {
-		return nil, error
+		exit("cannot encrypt: %s", err)
 	}
 
-	aesgcm, err := cipher.NewGCM(block)
-	if err != nil {
-		return nil, err
-	}
-
-	// Never use more than 2^32 random nonces with a given key because of the risk of a repeat.
-	headerLen := VERSION_BYTE_LENGTH + GCM_IV_BYTES_LENGTH
-	ciphertext := make([]byte, headerLen+GCM_TAG_BYTES_LENGTH+len(plaintext))
-	ciphertext[0] = VERSION_BYTE
-
-	nonce := ciphertext[VERSION_BYTE_LENGTH:headerLen]
-	if _, err := io.ReadFull(rand.Reader, nonce); err != nil {
-		return nil, err
-	}
-
-	ciphertext = ciphertext[:headerLen]
-	fmt.Printf("nonce: %x\n", ciphertext)
-
-	aesgcm.Seal(ciphertext, nonce, plaintext, ciphertext[:headerLen])
-
-	fmt.Printf("%x\n", ciphertext)
-	return ciphertext, nil
+	fmt.Printf("%s\n", ciphertext)
 }
 
-func ExampleNewGCMDecrypter() {
-	// The key argument should be the AES key, either 16 or 32 bytes
-	// to select AES-128 or AES-256.
-	key := []byte("AES256Key-32Characters1234567890")
-	ciphertext, _ := hex.DecodeString("2df87baf86b5073ef1f03e3cc738de75b511400f5465bb0ddeacf47ae4dc267d")
+func decrypt(password []byte, args []string) {
 
-	nonce, _ := hex.DecodeString("afb8a7579bf971db9f8ceeed")
-
-	block, err := aes.NewCipher(key)
-	if err != nil {
-		panic(err.Error())
+	if len(args) <= 2 {
+		printDecUsage()
+		os.Exit(1)
+		return
 	}
 
-	aesgcm, err := cipher.NewGCM(block)
-	if err != nil {
-		panic(err.Error())
+	pkey := args[1]
+	fn := args[2]
+
+	cipherbytes, err := ioutil.ReadFile(fn)
+	if err != nil || cipherbytes == nil {
+		exit("cannot read: %s", fn)
 	}
 
-	plaintext, err := aesgcm.Open(nil, nonce, ciphertext, nil)
+	ciphertext := strings.TrimSpace(string(cipherbytes))
+	plaintext, err := prop.Decrypt(password, pkey, string(ciphertext))
 	if err != nil {
-		panic(err.Error())
+		exit("cannot encrypt: %s", err)
 	}
 
 	fmt.Printf("%s\n", plaintext)
-	// Output: exampleplaintext
 }
 
-func main() {
-	ExampleNewGCMEncrypter()
-	ExampleNewGCMDecrypter()
+func printEncUsage() {
+	fmt.Fprintf(os.Stderr, "Usage: %s enc <property key> <filename>\n", os.Args[0])
+}
+
+func printDecUsage() {
+	fmt.Fprintf(os.Stderr, "Usage: %s dec <property key> <filename>\n", os.Args[0])
+}
+
+func printUsage() {
+	fmt.Fprintf(os.Stderr, "Usage: %s ( enc | dec ) <...>\n", os.Args[0])
+}
+
+func readPassword() []byte {
+
+	fmt.Fprint(os.Stderr, "Enter Password: \n")
+	bytePassword, err := terminal.ReadPassword(int(syscall.Stdin))
+	if err != nil {
+		panic(err)
+	}
+
+	fmt.Fprint(os.Stderr, "Confirm Password: \n")
+	confirmPassword, err := terminal.ReadPassword(int(syscall.Stdin))
+	if err != nil {
+		panic(err)
+	}
+	if !bytes.Equal(bytePassword, confirmPassword) {
+		fmt.Fprint(os.Stderr, "passwords must match\n")
+		os.Exit(1)
+	}
+	return bytePassword
+}
+
+func exit(format string, msg ...interface{}) {
+	fmt.Fprintf(os.Stderr, format, msg)
+	os.Exit(1)
 }
