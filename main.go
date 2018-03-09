@@ -1,123 +1,89 @@
 package main
 
 import (
-	"fmt"
-	"golang.org/x/crypto/ssh/terminal"
-	"syscall"
-	"os"
 	"bytes"
+	"flag"
+	"fmt"
+	"github.com/trichner/gcrypt/cryptor"
+	"golang.org/x/crypto/ssh/terminal"
 	"io/ioutil"
-	"github.com/trichner/gcrypt/prop"
+	"os"
 	"strings"
+	"syscall"
 )
 
 func main() {
 
-	pw := readPassword()
+	pwFile := flag.String("p", "", "Password file")
+	decFlag := flag.Bool("d", false, "Decrypt")
+	flag.Parse()
 
-	args := os.Args
-	if len(args) < 2 {
-		printUsage()
-	}
+	var err error
 
-	args = args[1:]
-	if args[0] == "enc" {
-
-		encrypt(pw, args)
-		return
-	}
-
-	if args[0] == "dec" {
-
-		decrypt(pw, args)
-		return
-	}
-
-	printUsage()
-}
-
-func encrypt(password []byte, args []string) {
-
-	if len(args) <= 2 {
-		printEncUsage()
-		os.Exit(1)
-		return
-	}
-
-	pkey := args[1]
-	fn := args[2]
-
-	plaintext, err := ioutil.ReadFile(fn)
-	if err != nil || plaintext == nil {
-		exit("cannot read: %s", fn)
-	}
-
-	ciphertext, err := prop.Encrypt(password, pkey, string(plaintext))
+	pw, err := readPassword(*pwFile)
 	if err != nil {
-		exit("cannot encrypt: %s", err)
+		exit("%s", err)
 	}
+	inFile := strings.TrimSpace(flag.Arg(0))
 
-	fmt.Printf("%s", ciphertext)
-}
-
-func decrypt(password []byte, args []string) {
-
-	if len(args) <= 2 {
-		printDecUsage()
-		os.Exit(1)
-		return
+	var in []byte
+	if len(inFile) == 0 || inFile == "-" {
+		in, err = ioutil.ReadAll(os.Stdin)
+	} else {
+		in, err = ioutil.ReadFile(inFile)
 	}
-
-	pkey := args[1]
-	fn := args[2]
-
-	cipherbytes, err := ioutil.ReadFile(fn)
-	if err != nil || cipherbytes == nil {
-		exit("cannot read: %s", fn)
-	}
-
-	ciphertext := strings.TrimSpace(string(cipherbytes))
-	plaintext, err := prop.Decrypt(password, pkey, string(ciphertext))
 	if err != nil {
-		exit("cannot encrypt: %s", err)
+		exit("%s", err)
 	}
 
-	fmt.Printf("%s", plaintext)
+	inStr := string(in)
+	var out string
+	if *decFlag {
+		out, err = cryptor.DecryptString(pw, inStr)
+	} else {
+		out, err = cryptor.EncryptString(pw, inStr)
+	}
+
+	if err != nil {
+		exit("%s", err)
+	}
+
+	fmt.Printf("%s", out)
 }
 
-func printEncUsage() {
-	fmt.Fprintf(os.Stderr, "Usage: %s enc <property key> <filename>\n", os.Args[0])
-}
+func readPassword(pwFile string) ([]byte, error) {
 
-func printDecUsage() {
-	fmt.Fprintf(os.Stderr, "Usage: %s dec <property key> <filename>\n", os.Args[0])
-}
+	// read from file
+	if len(pwFile) > 0 {
+		pw, err := ioutil.ReadFile(pwFile)
 
-func printUsage() {
-	fmt.Fprintf(os.Stderr, "Usage: %s ( enc | dec ) <...>\n", os.Args[0])
-}
+		if err != nil {
+			return nil, err
+		}
+		return pw, nil
+	}
 
-func readPassword() []byte {
-
+	// from console
 	fmt.Fprint(os.Stderr, "Enter Password: \n")
 	bytePassword, err := terminal.ReadPassword(int(syscall.Stdin))
 	if err != nil {
-		panic(err)
+		return nil, err
 	}
 
 	fmt.Fprint(os.Stderr, "Confirm Password: \n")
 	confirmPassword, err := terminal.ReadPassword(int(syscall.Stdin))
 	if err != nil {
-		panic(err)
+		return nil, err
 	}
+
 	if !bytes.Equal(bytePassword, confirmPassword) {
-		fmt.Fprint(os.Stderr, "passwords must match\n")
-		os.Exit(1)
+		return nil, fmt.Errorf("passwords must match")
 	}
-	return bytePassword
+
+	return bytePassword, err
 }
 
 func exit(format string, msg ...interface{}) {
-	fmt.Fprintf(os.Stderr, format, msg)
+	fmt.Fprintf(os.Stderr, format, msg...)
 	os.Exit(1)
 }
