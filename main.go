@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bufio"
 	"bytes"
 	"flag"
 	"fmt"
@@ -16,6 +17,7 @@ func main() {
 
 	pwFile := flag.String("p", "", "Password file")
 	decFlag := flag.Bool("d", false, "Decrypt")
+	lstFile := flag.String("l", "", "Encrypt list, new-line separated list")
 	flag.Parse()
 
 	var err error
@@ -24,6 +26,24 @@ func main() {
 	if err != nil {
 		exit("%s", err)
 	}
+
+	// do we have a list input?
+	if len(*lstFile) != 0 {
+		lines, err := readList(*lstFile)
+		if err != nil {
+			exit("%s", err)
+		}
+
+		for _, p := range lines {
+			out, err := cryptor.EncryptString(pw, p.line)
+			if err != nil {
+				exit("%s", err)
+			}
+			fmt.Printf("%s,%s\n", p.key, out)
+		}
+		return
+	}
+
 	inFile := strings.TrimSpace(flag.Arg(0))
 
 	var in []byte
@@ -49,6 +69,43 @@ func main() {
 	}
 
 	fmt.Printf("%s", out)
+}
+
+type property struct {
+	key, line string
+}
+
+func readList(listFile string) ([]property, error) {
+	f, err := os.Open(listFile)
+	if err != nil {
+		return nil, err
+	}
+
+	scanner := bufio.NewScanner(f)
+	if err != nil {
+		return nil, err
+	}
+
+	properties := make([]property, 0, 10)
+	for scanner.Scan() {
+		l := scanner.Text()
+		if len(l) == 0 {
+			continue
+		}
+
+		splits := strings.SplitN(l, ":", 2)
+		if len(splits) != 2 {
+			return nil, fmt.Errorf("no tag found in property: " + l)
+		}
+
+		p := property{
+			key:  splits[0],
+			line: l,
+		}
+		properties = append(properties, p)
+	}
+	err = scanner.Err()
+	return properties, err
 }
 
 func readPassword(pwFile string) ([]byte, error) {
