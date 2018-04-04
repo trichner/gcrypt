@@ -17,7 +17,7 @@ const (
 	aesKeyBitsLen    = 128
 	gcmIvBytesLen    = 12
 	gcmTagBytesLen   = 16
-	pbkdf2Iterations = 16384
+	pbkdf2Iterations = 1024
 	pbkdf2SaltStr    = "4d3fe0d71d2abd2828e7a3196ea450d4"
 )
 
